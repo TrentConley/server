@@ -217,15 +217,4 @@ async def health_check():
     """Health check endpoint for monitoring."""
     return {"status": "healthy", "service": "cline-oauth-callback"}
 
-# This part is for local development and won't be used by run_prod.py
-if __name__ == "__main__":
-    import uvicorn
-    # This local run uses the dev script's port for consistency
-    print("🚀 Starting server in local development mode (not for production)")
-    print("🔑 Make sure to set environment variables (e.g., in a .env file)")
-    uvicorn.run(
-        "main:app",
-        host="0.0.0.0",
-        port=8000, # Consistent with run_dev.py
-        reload=True
-    )
+

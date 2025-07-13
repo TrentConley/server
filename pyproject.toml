@@ -1,0 +1,20 @@
+[tool.poetry]
+name = "cline-oauth-callback"
+version = "2.0.0"
+description = "A generic OIDC callback handler for desktop extensions."
+authors = ["Your Name <you@example.com>"]
+license = "MIT"
+readme = "README.md"
+
+[tool.poetry.dependencies]
+python = ">=3.9,<3.12"
+fastapi = ">=0.104.1"
+uvicorn = {extras = ["standard"], version = ">=0.24.0"}
+python-multipart = ">=0.0.6"
+httpx = ">=0.25.0"
+python-jose = {extras = ["cryptography"], version = ">=3.3.0"}
+
+
+[build-system]
+requires = ["poetry-core"]
+build-backend = "poetry.core.masonry.api"
