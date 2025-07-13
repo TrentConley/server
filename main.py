@@ -6,8 +6,8 @@ from typing import Optional
 from fastapi import FastAPI, Request, HTTPException
 from fastapi.responses import RedirectResponse, HTMLResponse
 from fastapi.middleware.cors import CORSMiddleware
-from jose import jwt
-from jose.exceptions import JWTError
+import jwt
+from jwt.exceptions import PyJWTError
 
 # --- Configuration ---
 # Load from environment variables
@@ -148,7 +148,7 @@ async def oauth_callback(request: Request, code: str, state: str):
 
             # Validate the ID token (signature, claims, etc.)
             # This is a critical security step.
-            signing_key = await jwks_client.get_signing_key_from_jwt(id_token)
+            signing_key = jwks_client.get_signing_key_from_jwt(id_token)
             decoded_token = jwt.decode(
                 id_token,
                 signing_key.key,
@@ -158,7 +158,7 @@ async def oauth_callback(request: Request, code: str, state: str):
             )
             logger.info(f"Successfully validated ID token for user: {decoded_token.get('email')}")
 
-    except (httpx.RequestError, JWTError, ValueError) as e:
+    except (httpx.RequestError, PyJWTError, ValueError) as e:
         logger.error(f"Error during token exchange or validation: {e}")
         return _create_error_response(
             "Token Exchange Failed",
