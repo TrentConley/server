@@ -15,7 +15,7 @@ COPY pyproject.toml poetry.lock* ./
 # Install dependencies into a virtual environment
 # This isolates dependencies and keeps the final image clean
 RUN poetry config virtualenvs.in-project true && \
-    poetry install --no-dev --no-root
+    poetry install --only=main --no-root
 
 
 # --- Stage 2: Final Stage ---
