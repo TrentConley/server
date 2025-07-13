@@ -121,33 +121,33 @@ async def oauth_callback(request: Request, code: str, state: str):
     Handles the callback from the OIDC provider after user authentication.
     Exchanges the authorization code for tokens and redirects to the VSCode extension.
     """
-    if not oidc_config:
-        logger.error("OIDC provider not configured at callback time.")
-        raise HTTPException(status_code=503, detail="OIDC provider not configured. Check server logs.")
-
-    redirect_uri = f"{APP_BASE_URL}/oauth/oidc/callback"
-    token_endpoint = oidc_config.get("token_endpoint")
-
-    if not token_endpoint:
-        logger.error("token_endpoint not found in OIDC config.")
-        raise HTTPException(status_code=503, detail="OIDC provider misconfigured (no token_endpoint).")
-
-    token_data = {
-        "grant_type": "authorization_code",
-        "code": code,
-        "redirect_uri": redirect_uri,
-        "client_id": CLIENT_ID,
-        "client_secret": CLIENT_SECRET,
-    }
-
-    logger.info(f"Preparing to exchange code for token. Token endpoint: {token_endpoint}, Redirect URI: {redirect_uri}, Client ID: {CLIENT_ID is not None}")
-
+    logger.info("--- OAUTH CALLBACK HANDLER ENTERED ---")
     try:
+        if not oidc_config:
+            logger.error("OIDC provider not configured at callback time.")
+            raise HTTPException(status_code=503, detail="OIDC provider not configured. Check server logs.")
+
+        redirect_uri = f"{APP_BASE_URL}/oauth/oidc/callback"
+        token_endpoint = oidc_config.get("token_endpoint")
+
+        if not token_endpoint:
+            logger.error("token_endpoint not found in OIDC config.")
+            raise HTTPException(status_code=503, detail="OIDC provider misconfigured (no token_endpoint).")
+
+        token_data = {
+            "grant_type": "authorization_code",
+            "code": code,
+            "redirect_uri": redirect_uri,
+            "client_id": CLIENT_ID,
+            "client_secret": CLIENT_SECRET,
+        }
+
+        logger.info(f"Preparing to exchange code for token. Redirect URI: {redirect_uri}, Client ID set: {CLIENT_ID is not None}")
+
         async with httpx.AsyncClient() as client:
             logger.info(f"Exchanging authorization code for tokens at: {token_endpoint}")
             token_response = await client.post(token_endpoint, data=token_data)
             
-            # Log response regardless of status
             logger.info(f"Token endpoint response status: {token_response.status_code}")
             if token_response.status_code != 200:
                 logger.error(f"Token endpoint response body: {token_response.text}")
@@ -159,7 +159,6 @@ async def oauth_callback(request: Request, code: str, state: str):
             if not id_token:
                 raise ValueError("id_token not found in token response")
 
-            # Validate the ID token (signature, claims, etc.)
             logger.info("Validating ID token...")
             signing_key = jwks_client.get_signing_key_from_jwt(id_token)
             decoded_token = jwt.decode(
@@ -171,27 +170,22 @@ async def oauth_callback(request: Request, code: str, state: str):
             )
             logger.info(f"Successfully validated ID token for user: {decoded_token.get('email')}")
 
-    except httpx.RequestError as e:
-        logger.error(f"HTTP error during token exchange: {e}")
-        return _create_error_response("Network Error", "Failed to communicate with the authentication provider.")
+        vscode_uri = f"vscode://{VSCODE_EXTENSION_ID}/auth?{urllib.parse.urlencode(token_json)}&state={state}"
+        
+        logger.info("Redirecting to VSCode extension with tokens.")
+        return _create_success_response(vscode_uri)
+
     except httpx.HTTPStatusError as e:
-        logger.error(f"HTTP status error during token exchange: {e.response.status_code} - {e.response.text}")
+        logger.error(f"HTTP status error during token exchange: {e.response.status_code} - {e.response.text}", exc_info=True)
         return _create_error_response("Provider Error", "The authentication provider returned an error. Please check the server logs.")
     except (PyJWTError, ValueError) as e:
-        logger.error(f"Error during token validation: {e}")
-        return _create_error_response(
-            "Token Validation Failed",
-            "Could not validate the token received from the provider. Please try again."
-        )
+        logger.error(f"Error during token validation: {e}", exc_info=True)
+        return _create_error_response("Token Validation Failed", "Could not validate the token. Please try again.")
     except Exception as e:
         logger.error(f"An unexpected error occurred in oauth_callback: {e}", exc_info=True)
         return _create_error_response("Internal Server Error", "An unexpected error occurred.")
-
-    # Pass the full token response to the extension
-    vscode_uri = f"vscode://{VSCODE_EXTENSION_ID}/auth?{urllib.parse.urlencode(token_json)}&state={state}"
-    
-    logger.info("Redirecting to VSCode extension with tokens.")
-    return _create_success_response(vscode_uri)
+    finally:
+        logger.info("--- OAUTH CALLBACK HANDLER EXITED ---")
 
 def _create_success_response(vscode_uri: str):
     """Returns a user-friendly HTML page that redirects to the VSCode extension."""
