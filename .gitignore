@@ -52,3 +52,6 @@ logs/
 .env
 .env.local
 .env.production
+
+client_secret*
+venvd

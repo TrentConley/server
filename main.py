@@ -179,7 +179,7 @@ if __name__ == "__main__":
     uvicorn.run(
         "main:app",
         host="0.0.0.0",
-        port=8000,
+        port=8010,
         reload=True,
         ssl_keyfile="key.pem",  # You'll need to generate these
         ssl_certfile="cert.pem"
