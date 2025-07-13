@@ -122,10 +122,15 @@ async def oauth_callback(request: Request, code: str, state: str):
     Exchanges the authorization code for tokens and redirects to the VSCode extension.
     """
     if not oidc_config:
+        logger.error("OIDC provider not configured at callback time.")
         raise HTTPException(status_code=503, detail="OIDC provider not configured. Check server logs.")
 
     redirect_uri = f"{APP_BASE_URL}/oauth/oidc/callback"
-    token_endpoint = oidc_config["token_endpoint"]
+    token_endpoint = oidc_config.get("token_endpoint")
+
+    if not token_endpoint:
+        logger.error("token_endpoint not found in OIDC config.")
+        raise HTTPException(status_code=503, detail="OIDC provider misconfigured (no token_endpoint).")
 
     token_data = {
         "grant_type": "authorization_code",
@@ -135,10 +140,18 @@ async def oauth_callback(request: Request, code: str, state: str):
         "client_secret": CLIENT_SECRET,
     }
 
+    logger.info(f"Preparing to exchange code for token. Token endpoint: {token_endpoint}, Redirect URI: {redirect_uri}, Client ID: {CLIENT_ID is not None}")
+
     try:
         async with httpx.AsyncClient() as client:
             logger.info(f"Exchanging authorization code for tokens at: {token_endpoint}")
             token_response = await client.post(token_endpoint, data=token_data)
+            
+            # Log response regardless of status
+            logger.info(f"Token endpoint response status: {token_response.status_code}")
+            if token_response.status_code != 200:
+                logger.error(f"Token endpoint response body: {token_response.text}")
+
             token_response.raise_for_status()
             token_json = token_response.json()
             
@@ -147,7 +160,7 @@ async def oauth_callback(request: Request, code: str, state: str):
                 raise ValueError("id_token not found in token response")
 
             # Validate the ID token (signature, claims, etc.)
-            # This is a critical security step.
+            logger.info("Validating ID token...")
             signing_key = jwks_client.get_signing_key_from_jwt(id_token)
             decoded_token = jwt.decode(
                 id_token,
@@ -158,12 +171,21 @@ async def oauth_callback(request: Request, code: str, state: str):
             )
             logger.info(f"Successfully validated ID token for user: {decoded_token.get('email')}")
 
-    except (httpx.RequestError, PyJWTError, ValueError) as e:
-        logger.error(f"Error during token exchange or validation: {e}")
+    except httpx.RequestError as e:
+        logger.error(f"HTTP error during token exchange: {e}")
+        return _create_error_response("Network Error", "Failed to communicate with the authentication provider.")
+    except httpx.HTTPStatusError as e:
+        logger.error(f"HTTP status error during token exchange: {e.response.status_code} - {e.response.text}")
+        return _create_error_response("Provider Error", "The authentication provider returned an error. Please check the server logs.")
+    except (PyJWTError, ValueError) as e:
+        logger.error(f"Error during token validation: {e}")
         return _create_error_response(
-            "Token Exchange Failed",
-            "Could not exchange the authorization code for a valid token. Please try again."
+            "Token Validation Failed",
+            "Could not validate the token received from the provider. Please try again."
         )
+    except Exception as e:
+        logger.error(f"An unexpected error occurred in oauth_callback: {e}", exc_info=True)
+        return _create_error_response("Internal Server Error", "An unexpected error occurred.")
 
     # Pass the full token response to the extension
     vscode_uri = f"vscode://{VSCODE_EXTENSION_ID}/auth?{urllib.parse.urlencode(token_json)}&state={state}"
