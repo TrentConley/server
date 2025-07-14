@@ -19,6 +19,8 @@ CLIENT_SECRET = os.environ.get("CLIENT_SECRET")
 APP_BASE_URL = os.environ.get("APP_BASE_URL", "http://localhost:8000")
 # The VSCode extension's custom URI scheme
 VSCODE_EXTENSION_ID = os.environ.get("VSCODE_EXTENSION_ID", "saoudrizwan.claude-dev")
+# Whether to use direct redirect (302) or HTML page with manual link
+USE_DIRECT_REDIRECT = os.environ.get("USE_DIRECT_REDIRECT", "true").lower() == "true"
 
 # --- Logging ---
 logging.basicConfig(level=logging.INFO)
@@ -170,45 +172,149 @@ async def oauth_callback(request: Request, code: str, state: str):
             )
             logger.info(f"Successfully validated ID token for user: {decoded_token.get('email')}")
 
-        vscode_uri = f"vscode://{VSCODE_EXTENSION_ID}/auth?{urllib.parse.urlencode(token_json)}&state={state}"
+        vscode_uri = f"vscode://{VSCODE_EXTENSION_ID}/oidc?{urllib.parse.urlencode(token_json)}&state={state}"
         
         logger.info("Redirecting to VSCode extension with tokens.")
-        return _create_success_response(vscode_uri)
+        
+        # Option to use direct redirect instead of HTML page
+        if USE_DIRECT_REDIRECT:
+            logger.info("Using direct redirect to VSCode URI")
+            return RedirectResponse(url=vscode_uri, status_code=302)
+        else:
+            return _create_success_response(vscode_uri)
 
     except httpx.HTTPStatusError as e:
         logger.error(f"HTTP status error during token exchange: {e.response.status_code} - {e.response.text}", exc_info=True)
-        return _create_error_response("Provider Error", "The authentication provider returned an error. Please check the server logs.")
+        error_params = {
+            "error": "provider_error",
+            "error_description": f"The authentication provider returned an error: {e.response.status_code}",
+            "state": state
+        }
+        vscode_error_uri = f"vscode://{VSCODE_EXTENSION_ID}/oidc?{urllib.parse.urlencode(error_params)}"
+        if USE_DIRECT_REDIRECT:
+            return RedirectResponse(url=vscode_error_uri, status_code=302)
+        else:
+            return _create_error_response("Provider Error", "The authentication provider returned an error. Please check the server logs.")
     except (PyJWTError, ValueError) as e:
         logger.error(f"Error during token validation: {e}", exc_info=True)
-        return _create_error_response("Token Validation Failed", "Could not validate the token. Please try again.")
+        error_params = {
+            "error": "token_validation_failed",
+            "error_description": str(e),
+            "state": state
+        }
+        vscode_error_uri = f"vscode://{VSCODE_EXTENSION_ID}/oidc?{urllib.parse.urlencode(error_params)}"
+        if USE_DIRECT_REDIRECT:
+            return RedirectResponse(url=vscode_error_uri, status_code=302)
+        else:
+            return _create_error_response("Token Validation Failed", "Could not validate the token. Please try again.")
     except Exception as e:
         logger.error(f"An unexpected error occurred in oauth_callback: {e}", exc_info=True)
-        return _create_error_response("Internal Server Error", "An unexpected error occurred.")
+        error_params = {
+            "error": "internal_server_error",
+            "error_description": str(e),
+            "state": state
+        }
+        vscode_error_uri = f"vscode://{VSCODE_EXTENSION_ID}/oidc?{urllib.parse.urlencode(error_params)}"
+        if USE_DIRECT_REDIRECT:
+            return RedirectResponse(url=vscode_error_uri, status_code=302)
+        else:
+            return _create_error_response("Internal Server Error", "An unexpected error occurred.")
     finally:
         logger.info("--- OAUTH CALLBACK HANDLER EXITED ---")
 
 def _create_success_response(vscode_uri: str):
-    """Returns a user-friendly HTML page that redirects to the VSCode extension."""
+    """Returns a user-friendly HTML page that redirects to the VSCode extension via the /oidc path."""
     return HTMLResponse(content=f'''
         <html>
             <head>
-                <title>Redirecting to VSCode...</title>
-                <meta http-equiv="refresh" content="1;url={vscode_uri}">
+                <title>Authentication Successful</title>
                 <style>
-                    body {{ font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; text-align: center; padding: 40px; background-color: #f8f9fa; }}
-                    .container {{ background: white; padding: 30px; border-radius: 8px; box-shadow: 0 4px 6px rgba(0,0,0,0.1); display: inline-block; }}
-                    h1 {{ color: #28a745; }}
-                    p {{ color: #495057; }}
-                    a {{ color: #007bff; }}
+                    body {{ 
+                        font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; 
+                        text-align: center; 
+                        padding: 40px; 
+                        background-color: #f8f9fa; 
+                    }}
+                    .container {{ 
+                        background: white; 
+                        padding: 40px; 
+                        border-radius: 12px; 
+                        box-shadow: 0 4px 6px rgba(0,0,0,0.1); 
+                        display: inline-block; 
+                        max-width: 500px;
+                    }}
+                    h1 {{ 
+                        color: #28a745; 
+                        margin-bottom: 20px;
+                    }}
+                    p {{ 
+                        color: #495057; 
+                        margin-bottom: 30px;
+                        line-height: 1.6;
+                    }}
+                    .button {{
+                        background-color: #007bff;
+                        color: white;
+                        padding: 12px 30px;
+                        border: none;
+                        border-radius: 6px;
+                        font-size: 16px;
+                        font-weight: 600;
+                        cursor: pointer;
+                        text-decoration: none;
+                        display: inline-block;
+                        margin: 10px;
+                        transition: background-color 0.2s;
+                    }}
+                    .button:hover {{
+                        background-color: #0056b3;
+                    }}
+                    .secondary-link {{
+                        color: #6c757d;
+                        font-size: 14px;
+                        margin-top: 20px;
+                        display: block;
+                    }}
+                    .warning {{
+                        background-color: #fff3cd;
+                        border: 1px solid #ffeaa7;
+                        color: #856404;
+                        padding: 15px;
+                        border-radius: 6px;
+                        margin-top: 20px;
+                        font-size: 14px;
+                    }}
                 </style>
             </head>
             <body>
                 <div class="container">
-                    <h1>Authentication Successful!</h1>
-                    <p>Redirecting you back to VSCode...</p>
-                    <p>If you are not redirected automatically, <a href="{vscode_uri}">click here to continue</a>.</p>
+                    <h1>✅ Authentication Successful!</h1>
+                    <p>Your authentication was successful. Click the button below to complete the login process in VS Code.</p>
+                    
+                    <a href="{vscode_uri}" class="button">Open in VS Code</a>
+                    
+                    <div class="warning">
+                        <strong>Note:</strong> If clicking the button doesn't work, your browser may be blocking the redirect. 
+                        You can try:
+                        <ul style="text-align: left; margin-top: 10px;">
+                            <li>Check if your browser is asking for permission to open VS Code</li>
+                            <li>Make sure VS Code is installed and running</li>
+                            <li>Copy the link and paste it in a new tab</li>
+                        </ul>
+                    </div>
+                    
+                    <p class="secondary-link">
+                        Having trouble? Try copying this link:<br>
+                        <code style="word-break: break-all; font-size: 12px;">{vscode_uri}</code>
+                    </p>
                 </div>
-                <script>window.location.href = "{vscode_uri}";</script>
+                
+                <script>
+                    // Try to open VS Code after a short delay to give user time to see the page
+                    setTimeout(function() {{
+                        window.location.href = "{vscode_uri}";
+                    }}, 1500);
+                </script>
             </body>
         </html>
     ''')
