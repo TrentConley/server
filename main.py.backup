@@ -3,7 +3,7 @@ import httpx
 import logging
 import urllib.parse
 from typing import Optional
-from fastapi import FastAPI, Request, HTTPException, Header
+from fastapi import FastAPI, Request, HTTPException
 from fastapi.responses import RedirectResponse, HTMLResponse
 from fastapi.middleware.cors import CORSMiddleware
 import jwt
@@ -88,70 +88,6 @@ async def root():
         "oidc_provider": OIDC_PROVIDER_URL,
         "oidc_config_loaded": bool(oidc_config)
     }
-
-@app.get("/.well-known/openid-configuration")
-async def oidc_discovery():
-    """OIDC Discovery endpoint that VS Code will hit"""
-    return {
-        "issuer": APP_BASE_URL,
-        "authorization_endpoint": f"{APP_BASE_URL}/login",
-        "token_endpoint": f"{APP_BASE_URL}/token", 
-        "userinfo_endpoint": f"{APP_BASE_URL}/userinfo",
-        "jwks_uri": f"{APP_BASE_URL}/.well-known/jwks.json",
-        "scopes_supported": ["openid", "email", "profile"],
-        "response_types_supported": ["code"],
-        "grant_types_supported": ["authorization_code"]
-    }
-
-@app.get("/userinfo")
-async def get_userinfo(authorization: str = Header(...)):
-    """Get user info using access token - proxy to actual OIDC provider"""
-    try:
-        # Extract token from "Bearer <token>"
-        token = authorization.replace("Bearer ", "")
-        
-        # Get userinfo endpoint from the actual OIDC provider
-        userinfo_endpoint = oidc_config.get("userinfo_endpoint")
-        if not userinfo_endpoint:
-            raise HTTPException(status_code=503, detail="OIDC provider not configured")
-        
-        # Call actual OIDC provider's userinfo endpoint
-        async with httpx.AsyncClient(verify=False) as client:  # verify=False for internal networks
-            response = await client.get(
-                userinfo_endpoint,
-                headers={"Authorization": f"Bearer {token}"},
-                timeout=10.0
-            )
-            response.raise_for_status()
-            return response.json()
-            
-    except httpx.HTTPStatusError as e:
-        logger.error(f"Userinfo request failed: {e.response.status_code} - {e.response.text}")
-        raise HTTPException(status_code=401, detail=f"Failed to get user info: {e.response.status_code}")
-    except Exception as e:
-        logger.error(f"Userinfo error: {e}")
-        raise HTTPException(status_code=401, detail=f"Failed to get user info: {str(e)}")
-
-@app.get("/.well-known/jwks.json") 
-async def jwks():
-    """JWKS endpoint - proxy actual OIDC provider's JWKS"""
-    try:
-        jwks_uri = oidc_config.get("jwks_uri")
-        if not jwks_uri:
-            raise HTTPException(status_code=503, detail="OIDC provider not configured")
-            
-        async with httpx.AsyncClient(verify=False) as client:
-            response = await client.get(jwks_uri, timeout=10.0)
-            response.raise_for_status()
-            return response.json()
-    except Exception as e:
-        logger.error(f"JWKS fetch error: {e}")
-        raise HTTPException(status_code=500, detail=f"Failed to get JWKS: {str(e)}")
-
-@app.get("/token")
-async def token_endpoint():
-    """Token endpoint placeholder - tokens are handled in callback"""
-    raise HTTPException(status_code=501, detail="Token endpoint handled in callback flow")
 
 @app.get("/login")
 async def login(request: Request, state: Optional[str] = None):
@@ -294,7 +230,7 @@ def _create_success_response(vscode_uri: str):
                 <title>Authentication Successful</title>
                 <style>
                     body {{ 
-                        font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+                        font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; 
                         text-align: center; 
                         padding: 40px; 
                         background-color: #f8f9fa; 
@@ -358,7 +294,7 @@ def _create_success_response(vscode_uri: str):
                     <a href="{vscode_uri}" class="button">Open in VS Code</a>
                     
                     <div class="warning">
-                        <strong>Note:</strong> If clicking the button doesn't work, your browser may be blocking the redirect.
+                        <strong>Note:</strong> If clicking the button doesn't work, your browser may be blocking the redirect. 
                         You can try:
                         <ul style="text-align: left; margin-top: 10px;">
                             <li>Check if your browser is asking for permission to open VS Code</li>
@@ -402,3 +338,5 @@ def _create_error_response(error_title: str, error_description: str):
 async def health_check():
     """Health check endpoint for monitoring."""
     return {"status": "healthy", "service": "cline-oauth-callback"}
+
+
